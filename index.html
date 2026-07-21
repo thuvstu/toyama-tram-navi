@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>富山市電 最速乗車ナビ</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box
+        }
+
+        body {
+            font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            overflow: hidden;
+            height: 100dvh
+        }
+
+        #map {
+            width: 100%;
+            height: 52dvh;
+            z-index: 1
+        }
+
+        #panel {
+            height: 48dvh;
+            overflow-y: auto;
+            padding: 12px;
+            background: #16213e;
+            border-top: 3px solid #0f3460
+        }
+
+        h1 {
+            font-size: 15px;
+            color: #e94560;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px
+        }
+
+        h1 .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+            animation: pulse 2s infinite
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: .3
+            }
+        }
+
+        .status-bar {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 8px
+        }
+
+        .section {
+            background: #0f3460;
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 8px
+        }
+
+        .section-title {
+            font-size: 12px;
+            color: #e94560;
+            font-weight: bold;
+            margin-bottom: 6px
+        }
+
+        select,
+        button {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            border: none;
+            font-size: 14px;
+            margin-bottom: 6px
+        }
+
+        select {
+            background: #1a1a2e;
+            color: #fff;
+            border: 1px solid #333
+        }
+
+        button {
+            background: #e94560;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer
+        }
+
+        button:active {
+            background: #c23152
+        }
+
+        button.secondary {
+            background: #0f3460;
+            border: 1px solid #e94560
+        }
+
+        .mode-btns {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 6px
+        }
+
+        .mode-btns button {
+            flex: 1;
+            padding: 7px 2px;
+            font-size: 11px;
+            margin: 0
+        }
+
+        .mode-btns button.active {
+            background: #4caf50
+        }
+
+        .result {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 10px;
+            margin-top: 6px;
+            border-left: 4px solid #4caf50
+        }
+
+        .result.urgent {
+            border-left-color: #ff9800
+        }
+
+        .result.impossible {
+            border-left-color: #f44336
+        }
+
+        .result-title {
+            font-size: 14px;
+            font-weight: bold;
+            color: #4caf50;
+            margin-bottom: 4px
+        }
+
+        .result.urgent .result-title {
+            color: #ff9800
+        }
+
+        .result.impossible .result-title {
+            color: #f44336
+        }
+
+        .result-detail {
+            font-size: 13px;
+            line-height: 1.7
+        }
+
+        .countdown {
+            font-size: 26px;
+            font-weight: bold;
+            color: #fff;
+            text-align: center;
+            margin: 6px 0;
+            font-variant-numeric: tabular-nums
+        }
+
+        .walk-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #aaa;
+            margin-top: 4px
+        }
+
+        .tram-marker {
+            background: none;
+            border: none
+        }
+
+        .tram-icon {
+            font-size: 22px;
+            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .5))
+        }
+
+        .user-marker {
+            width: 16px;
+            height: 16px;
+            background: #2196f3;
+            border: 3px solid #fff;
+            border-radius: 50%;
+            box-shadow: 0 0 8px rgba(33, 150, 243, .6)
+        }
+
+        .dest-marker {
+            width: 14px;
+            height: 14px;
+            background: #e94560;
+            border: 3px solid #fff;
+            border-radius: 50%
+        }
+
+        .stop-marker {
+            width: 8px;
+            height: 8px;
+            background: #fff;
+            border: 2px solid #666;
+            border-radius: 50%
+        }
+
+        .target-stop {
+            width: 14px;
+            height: 14px;
+            background: #4caf50;
+            border: 3px solid #fff;
+            border-radius: 50%;
+            animation: pulse 1s infinite
+        }
+
+        .route-line {
+            stroke: #2196f3;
+            stroke-width: 4;
+            stroke-dasharray: 8, 6;
+            opacity: .8
+        }
+
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, .7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            font-size: 14px;
+            color: #fff
+        }
+
+        .hidden {
+            display: none !important
+        }
+
+        .saved-dests {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-bottom: 6px
+        }
+
+        .saved-dests button {
+            width: auto;
+            padding: 4px 8px;
+            font-size: 11px;
+            background: #1a1a2e;
+            border: 1px solid #444;
+            margin: 0
+        }
+
+        .alt-list {
+            margin-top: 6px;
+            font-size: 11px;
+            color: #888;
+            line-height: 1.6
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+    <div id="panel">
+        <h1><span class="dot" id="statusDot"></span>富山市電 最速乗車ナビ</h1>
+        <div class="status-bar" id="statusBar">初期化中...</div>
+        <div class="section">
+            <div class="section-title">🚃 目的地</div>
+            <div class="saved-dests" id="savedDests"></div>
+            <select id="destSelect">
+                <option value="">-- 停留所を選択 --</option>
+            </select>
+            <button class="secondary" onclick="saveDestination()">⭐ 登録</button>
+        </div>
+        <div class="section">
+            <div class="section-title">🏃 移動モード</div>
+            <div class="mode-btns">
+                <button onclick="setMode('walk')" id="btn-walk">歩き<br>4.8</button>
+                <button onclick="setMode('brisk')" id="btn-brisk" class="active">早歩き<br>6.0</button>
+                <button onclick="setMode('dash')" id="btn-dash">ダッシュ<br>11</button>
+                <button onclick="setMode('sprint')" id="btn-sprint">全力<br>14</button>
+            </div>
+        </div>
+        <div class="section">
+            <div class="section-title">📍 最速乗車プラン</div>
+            <button onclick="calculateBestPlan()">🔍 計算する</button>
+            <div id="resultArea"></div>
+        </div>
+    </div>
+    <div id="loading" class="hidden">計算中...</div>
+
+    <script>
+        "use strict";
+        const CONFIG = {
+            vpUrl: "https://gtfs-rt-files.buscatch.jp/toyama/chitetsu_tram/VehiclePositions.pb",
+            // 通常: 公共プロキシ / 死んだら fallback/ のCF Worker URLに差し替え
+            corsProxy: "https://corsproxy.io/?url=",
+            // corsProxy: "https://gtfs-rt-proxy.YOUR_SUBDOMAIN.workers.dev/?url=",  ← 切替用
+            osrmBase: "https://router.project-osrm.org",
+            pollMs: 45000,
+            serviceStart: 360,   // 6:00
+            serviceEnd: 1390,    // 23:10
+            margin: 15,
+            maxWalkKm: 2.5,
+        };
+        const DATA_VERSION = "2026-07-22T00:00:00.000Z";
+        const STOPS = [
+            // (一応build.mjs が自動生成してくれます)
+            { id: "3001-C01_01", n: "南富山駅前", la: 36.670520, lo: 137.220567, ln: 1 },
+            { id: "3001-C02_01", n: "大町", la: 36.672764, lo: 137.220813, ln: 1 },
+            { id: "3001-C03_01", n: "堀川小泉", la: 36.675638, lo: 137.219379, ln: 1 },
+            { id: "3001-C04_01", n: "小泉町", la: 36.678258, lo: 137.217986, ln: 1 },
+            { id: "3001-C05_01", n: "西中野", la: 36.680453, lo: 137.216897, ln: 1 },
+            { id: "3001-C06_01", n: "広貫堂前", la: 36.683636, lo: 137.215882, ln: 1 },
+            { id: "3001-C07_01", n: "上本町", la: 36.686333, lo: 137.215786, ln: 1 },
+            { id: "3001-C08_01", n: "西町", la: 36.688347, lo: 137.215661, ln: 1 },
+            { id: "3001-C09_01", n: "中町（西町北）", la: 36.689769, lo: 137.215669, ln: 1 },
+            { id: "3001-C10_01", n: "荒町", la: 36.691438, lo: 137.215820, ln: 1 },
+            { id: "3001-C11_01", n: "桜橋", la: 36.694976, lo: 137.215955, ln: 1 },
+            { id: "3001-C12_01", n: "電気ビル前", la: 36.696698, lo: 137.216063, ln: 1 },
+            { id: "3001-C13_01", n: "地鉄ビル前", la: 36.698582, lo: 137.216127, ln: 1 },
+            { id: "3001-C14_01", n: "電鉄富山駅・エスタ前", la: 36.700007, lo: 137.213756, ln: 1 },
+            { id: "3001-C15_01", n: "富山駅", la: 36.701610, lo: 137.212900, ln: 1 },
+            { id: "3001-C16_01", n: "新富町", la: 36.698920, lo: 137.211389, ln: 2 },
+            { id: "3001-C17_01", n: "県庁前", la: 36.695627, lo: 137.209761, ln: 2 },
+            { id: "3001-C18_01", n: "丸の内", la: 36.692559, lo: 137.208934, ln: 2 },
+            { id: "3001-C19_01", n: "諏訪川原", la: 36.692302, lo: 137.206122, ln: 2 },
+            { id: "3001-C20_01", n: "安野屋", la: 36.692470, lo: 137.204430, ln: 2 },
+            { id: "3001-C21_01", n: "トヨタモビリティ富山Gスクエア五福前", la: 36.695693, lo: 137.194417, ln: 2 },
+            { id: "3001-C22_01", n: "富山大学前", la: 36.698581, lo: 137.191197, ln: 2 },
+            { id: "3002-C23_01", n: "国際会議場前", la: 36.691414, lo: 137.211441, ln: 3 },
+            { id: "3002-C24_01", n: "大手モール", la: 36.689597, lo: 137.211365, ln: 3 },
+            { id: "3002-C25_01", n: "グランドプラザ前", la: 36.688922, lo: 137.213441, ln: 3 },
+            { id: "3003-C26_01", n: "オークスカナルパークホテル富山前", la: 36.703641, lo: 137.214589, ln: 4 },
+            { id: "3003-C27_01", n: "インテック本社前", la: 36.703639, lo: 137.216517, ln: 4 },
+            { id: "3003-C28_01", n: "龍谷富山高校前（永楽町）", la: 36.702986, lo: 137.219795, ln: 4 },
+            { id: "3003-C29_01", n: "奥田中学校前", la: 36.703553, lo: 137.223568, ln: 4 },
+            { id: "3003-C30_01", n: "下奥井", la: 36.711982, lo: 137.224571, ln: 4 },
+            { id: "3003-C31_01", n: "粟島（大阪屋ショップ前）", la: 36.719127, lo: 137.224795, ln: 4 },
+            { id: "3003-C32_01", n: "越中中島", la: 36.722258, lo: 137.224875, ln: 4 },
+            { id: "3003-C33_01", n: "城川原", la: 36.731083, lo: 137.226023, ln: 4 },
+            { id: "3003-C34_01", n: "犬島新町", la: 36.735160, lo: 137.226586, ln: 4 },
+            { id: "3003-C35_01", n: "蓮町（馬場記念公園前）", la: 36.742330, lo: 137.227547, ln: 4 },
+            { id: "3003-C36_01", n: "萩浦小学校前", la: 36.747979, lo: 137.228318, ln: 4 },
+            { id: "3003-C37_01", n: "東岩瀬", la: 36.752021, lo: 137.230489, ln: 4 },
+            { id: "3003-C38_01", n: "競輪場前", la: 36.757572, lo: 137.233882, ln: 4 },
+            { id: "3003-C39_01", n: "岩瀬浜", la: 36.761363, lo: 137.234059, ln: 4 },
+        ];
+        const MODES = { walk: { s: 4.8, l: "歩き" }, brisk: { s: 6, l: "早歩き" }, dash: { s: 11, l: "ダッシュ" }, sprint: { s: 14, l: "全力" } };
+        let curMode = "brisk";
+        let map, userMk, destMk, tgtMk, routeLn, tramMks = {};
+        let userPos = null, vehicles = [], lastFetch = 0, pollT = null, cdT = null, curPlan = null;
+
+        function initMap() {
+            map = L.map('map', { zoomControl: false }).setView([36.695, 137.215], 14);
+            L.control.zoom({ position: 'topright' }).addTo(map);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '©OSM', maxZoom: 18 }).addTo(map);
+            const colors = { 1: '#e94560', 2: '#4caf50', 3: '#ff9800', 4: '#2196f3' };
+            STOPS.forEach(s => {
+                L.marker([s.la, s.lo], { icon: L.divIcon({ className: 'tram-marker', html: '<div class="stop-marker"></div>', iconSize: [8, 8] }) })
+                    .addTo(map).bindTooltip(s.n, { direction: 'top', offset: [0, -5] });
+            });
+            [1, 2, 3, 4].forEach(ln => {
+                const pts = STOPS.filter(s => s.ln === ln).map(s => [s.la, s.lo]);
+                if (pts.length > 1) L.polyline(pts, { color: colors[ln], weight: 3, opacity: .5 }).addTo(map);
+            });
+        }
+        function getGPS() {
+            return new Promise((ok, ng) => {
+                if (!navigator.geolocation) { ng("GPS非対応"); return }
+                navigator.geolocation.getCurrentPosition(
+                    p => ok({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy }),
+                    e => ng(e.message), { enableHighAccuracy: true, timeout: 10000, maximumAge: 20000 });
+            });
+        }
+        async function updUser() {
+            try {
+                userPos = await getGPS();
+                if (userMk) map.removeLayer(userMk);
+                userMk = L.marker([userPos.lat, userPos.lon], { icon: L.divIcon({ className: 'tram-marker', html: '<div class="user-marker"></div>', iconSize: [16, 16] }) })
+                    .addTo(map).bindTooltip("📍現在地 ±" + Math.round(userPos.acc) + "m", { direction: 'top' });
+                setStatus("📍 GPS OK (±" + Math.round(userPos.acc) + "m)");
+            } catch (e) { setStatus("⚠️ GPS: " + e) }
+        }
+        function jstMin() { const d = new Date(Date.now() + 9 * 36e5); return d.getUTCHours() * 60 + d.getUTCMinutes() }
+        async function fetchRT() {
+            const m = jstMin();
+            if (m < CONFIG.serviceStart || m > CONFIG.serviceEnd) { setStatus("🌙 運行時間外"); vehicles = []; updTrams(); return }
+            if (Date.now() - lastFetch < 30000) return;
+            try {
+                const r = await fetch(CONFIG.corsProxy + encodeURIComponent(CONFIG.vpUrl), { signal: AbortSignal.timeout(8000) });
+                if (!r.ok) throw new Error(r.status);
+                parseVP(new Uint8Array(await r.arrayBuffer()));
+                lastFetch = Date.now(); updTrams();
+                setStatus("🟢 RT " + new Date().toLocaleTimeString('ja-JP') + " (" + vehicles.length + "両)");
+            } catch (e) { setStatus("🔴 RT失敗: " + e.message) }
+        }
+        class PB {
+            constructor(d) { this.d = d; this.p = 0 }
+            more() { return this.p < this.d.length }
+            byte() { return this.d[this.p++] }
+            varint() { let r = 0, s = 0; for (; ;) { const b = this.byte(); r |= (b & 127) << s; if (!(b & 128)) break; s += 7 } return r >>> 0 }
+            tag() { const v = this.varint(); return [v >>> 3, v & 7] }
+            bytes() { const l = this.varint(); const b = this.d.slice(this.p, this.p + l); this.p += l; return b }
+            str() { return new TextDecoder().decode(this.bytes()) }
+            f32() { const b = this.d.slice(this.p, this.p + 4); this.p += 4; const a = new ArrayBuffer(4); new Uint8Array(a).set(b); return new DataView(a).getFloat32(0, true) }
+            skip(w) { if (w === 0) this.varint(); else if (w === 1) this.p += 8; else if (w === 2) { const l = this.varint(); this.p += l } else if (w === 5) this.p += 4 }
+        }
+        function parseVP(data) { vehicles = []; try { const r = new PB(data); while (r.more()) { const [f, w] = r.tag(); if (f === 2 && w === 2) { const e = pEnt(r.bytes()); if (e) vehicles.push(e) } else r.skip(w) } } catch (e) { console.error(e) } }
+        function pEnt(d) { const r = new PB(d); let v = null, id = ""; while (r.more()) { const [f, w] = r.tag(); if (f === 1 && w === 2) id = r.str(); else if (f === 4 && w === 2) v = pVP(r.bytes()); else r.skip(w) } if (v) v.eid = id; return v }
+        function pVP(d) {
+            const r = new PB(d); const v = { lat: 0, lon: 0, trip: "", route: "", vid: "", stop: "", ts: 0, spd: 0 };
+            while (r.more()) {
+                const [f, w] = r.tag();
+                if (f === 1 && w === 2) { const t = new PB(r.bytes()); while (t.more()) { const [a, b] = t.tag(); if (a === 1 && b === 2) v.trip = t.str(); else if (a === 5 && b === 2) v.route = t.str(); else t.skip(b) } }
+                else if (f === 2 && w === 2) { const p = new PB(r.bytes()); while (p.more()) { const [a, b] = p.tag(); if (a === 1 && b === 5) v.lat = p.f32(); else if (a === 2 && b === 5) v.lon = p.f32(); else if (a === 5 && b === 5) v.spd = p.f32(); else p.skip(b) } }
+                else if (f === 3 && w === 2) { const d2 = new PB(r.bytes()); while (d2.more()) { const [a, b] = d2.tag(); if (a === 1 && b === 2) v.vid = d2.str(); else d2.skip(b) } }
+                else if (f === 7 && w === 2) v.stop = r.str();
+                else if (f === 5 && w === 0) v.ts = r.varint();
+                else r.skip(w)
+            }
+            return v
+        }
+        function updTrams() {
+            Object.values(tramMks).forEach(m => map.removeLayer(m)); tramMks = {};
+            vehicles.forEach(v => {
+                if (!v.lat && !v.lon) return;
+                const mk = L.marker([v.lat, v.lon], { icon: L.divIcon({ className: 'tram-marker', html: '<div class="tram-icon">🚃</div>', iconSize: [26, 26], iconAnchor: [13, 13] }) }).addTo(map);
+                const sn = STOPS.find(s => s.id === v.stop);
+                mk.bindTooltip("🚃 " + v.vid + "<br>次停: " + (sn ? sn.n : v.stop) + "<br>" + v.route, { direction: 'top' });
+                tramMks[v.eid || v.vid] = mk
+            });
+        }
+        async function osrmTable(from, targets) {
+            const c = [from.lon + "," + from.lat, ...targets.map(t => t.lo + "," + t.la)];
+            const r = await fetch(CONFIG.osrmBase + "/table/v1/foot/" + c.join(";") + "?sources=0&annotations=distance,duration", { signal: AbortSignal.timeout(8000) });
+            if (!r.ok) throw new Error("OSRM " + r.status);
+            const d = await r.json(); if (d.code !== "Ok") throw new Error(d.code);
+            return targets.map((t, i) => ({ stop: t, dist: d.distances[0][i + 1], dur: d.durations[0][i + 1] }));
+        }
+        async function osrmRoute(from, to) {
+            const r = await fetch(CONFIG.osrmBase + "/route/v1/foot/" + from.lon + "," + from.lat + ";" + to.lo + "," + to.la + "?overview=full&geometries=geojson&steps=true", { signal: AbortSignal.timeout(5000) });
+            if (!r.ok) throw new Error("OSRM"); const d = await r.json();
+            if (d.code !== "Ok" || !d.routes.length) throw new Error("No route");
+            const rt = d.routes[0]; let ix = 0;
+            rt.legs?.[0]?.steps?.forEach(s => { if (s.intersections) ix += s.intersections.length });
+            return { dist: rt.distance, dur: rt.duration, geo: rt.geometry, ix };
+        }
+        function moveTime(distM, ix, mode) { return distM / (MODES[mode].s / 3.6) + ix * 0.6 * 25 }
+        async function calculateBestPlan() {
+            const destId = document.getElementById('destSelect').value;
+            if (!destId) { alert("目的地を選択"); return }
+            if (!userPos) { await updUser(); if (!userPos) return }
+            showLoad(true);
+            const dest = STOPS.find(s => s.id === destId); const results = [];
+            try {
+                const nearby = STOPS.filter(s => s.id !== destId && haversine(userPos.lat, userPos.lon, s.la, s.lo) < CONFIG.maxWalkKm * 1000);
+                if (!nearby.length) { showLoad(false); showResult([], dest); return }
+                const table = await osrmTable(userPos, nearby);
+                const scored = table.map(t => ({ stop: t.stop, dist: t.dist, time: moveTime(t.dist, Math.round(t.dist / 80), curMode) })).sort((a, b) => a.time - b.time);
+                const now = Date.now() / 1000;
+                if (vehicles.length > 0) {
+                    for (const sc of scored) {
+                        const arrive = now + sc.time;
+                        for (const v of vehicles) {
+                            const dv = haversine(v.lat, v.lon, sc.stop.la, sc.stop.lo);
+                            if (dv > 2500) continue;
+                            const tSpd = (v.spd > 1 ? v.spd * 3.6 : 20) / 3.6; const tArr = now + dv / tSpd;
+                            if (tArr > arrive + CONFIG.margin)
+                                results.push({ stop: sc.stop, walkT: sc.time, walkD: sc.dist, tramArr: tArr, wait: tArr - arrive, veh: v, total: sc.time + dv / tSpd + rideTime(sc.stop, dest) });
+                        }
+                    }
+                }
+                if (!results.length) {
+                    const best = scored[0];
+                    if (best) results.push({ stop: best.stop, walkT: best.time, walkD: best.dist, tramArr: now + best.time + 180, wait: 180, veh: null, total: best.time + 180 + rideTime(best.stop, dest), fb: true });
+                }
+                results.sort((a, b) => a.total - b.total);
+                for (let i = 0; i < Math.min(3, results.length); i++) {
+                    try { const rt = await osrmRoute(userPos, results[i].stop); results[i].geo = rt.geo; results[i].walkT = moveTime(rt.dist, rt.ix, curMode) } catch (e) { }
+                }
+                showResult(results, dest);
+            } catch (e) { document.getElementById('resultArea').innerHTML = '<div class="result impossible"><div class="result-title">エラー</div><div class="result-detail">' + e.message + '</div></div>' }
+            showLoad(false);
+        }
+        function rideTime(a, b) { return haversine(a.la, a.lo, b.la, b.lo) / (18 / 3.6) }
+        function showResult(results, dest) {
+            const area = document.getElementById('resultArea');
+            if (!results.length) { area.innerHTML = '<div class="result impossible"><div class="result-title">❌ 間に合う電車なし</div><div class="result-detail">走っても間に合いません。次の便を待ってください。</div></div>'; return }
+            const b = results[0]; const urg = b.wait < 60 ? "urgent" : ""; const ml = MODES[curMode].l;
+            let h = `<div class="result ${urg}"><div class="result-title">${b.fb ? "📋" : "🚃"} ${b.stop.n} へ向かえ！</div>
+    <div class="countdown" id="cd">--:--</div>
+    <div class="result-detail">🏃 <b>${ml}</b>で <b>${Math.ceil(b.walkT)}秒</b> (${Math.round(b.walkD)}m)<br>
+    🚉 到着後 <b>${Math.ceil(b.wait)}秒</b> 待ち<br>🎯 「${dest.n}」まで合計 <b>${Math.ceil(b.total / 60)}分</b><br>
+    ${b.veh ? "🚃 " + b.veh.vid + " (" + b.veh.route + ")" : "⚠️ 時刻表推定"}</div>
+    <div class="walk-info"><span>信号ペナルティ込</span><span>余裕${CONFIG.margin}秒</span></div></div>`;
+            if (results.length > 1) { h += '<div class="alt-list">'; results.slice(1, 4).forEach((r, i) => { h += `代替${i + 1}: ${r.stop.n} (歩${Math.ceil(r.walkT)}秒+待${Math.ceil(r.wait)}秒)<br>` }); h += '</div>' }
+            area.innerHTML = h;
+            if (tgtMk) map.removeLayer(tgtMk); if (routeLn) map.removeLayer(routeLn); if (destMk) map.removeLayer(destMk);
+            tgtMk = L.marker([b.stop.la, b.stop.lo], { icon: L.divIcon({ className: 'tram-marker', html: '<div class="target-stop"></div>', iconSize: [14, 14] }) }).addTo(map).bindTooltip("🎯 " + b.stop.n + " へ走れ!", { direction: 'top' }).openTooltip();
+            destMk = L.marker([dest.la, dest.lo], { icon: L.divIcon({ className: 'tram-marker', html: '<div class="dest-marker"></div>', iconSize: [14, 14] }) }).addTo(map).bindTooltip("🏁 " + dest.n, { direction: 'top' });
+            if (b.geo) { routeLn = L.polyline(b.geo.coordinates.map(c => [c[1], c[0]]), { className: 'route-line' }).addTo(map); map.fitBounds(routeLn.getBounds().pad(.2)) }
+            curPlan = { tramArr: b.tramArr }; startCD();
+        }
+        function startCD() {
+            if (cdT) clearInterval(cdT); cdT = setInterval(() => {
+                if (!curPlan) return; const rem = curPlan.tramArr - Date.now() / 1000; const el = document.getElementById('cd'); if (!el) { clearInterval(cdT); return }
+                if (rem <= 0) { el.textContent = "🚃 来た!"; el.style.color = "#4caf50"; clearInterval(cdT) }
+                else { const m = Math.floor(rem / 60), s = Math.floor(rem % 60); el.textContent = `⏱ ${m}:${String(s).padStart(2, '0')}`; el.style.color = rem < 60 ? "#ff9800" : "#fff" }
+            }, 1000)
+        }
+        function haversine(a, b, c, d) { const R = 6371e3, dLa = (c - a) * Math.PI / 180, dLo = (d - b) * Math.PI / 180; const x = Math.sin(dLa / 2) ** 2 + Math.cos(a * Math.PI / 180) * Math.cos(c * Math.PI / 180) * Math.sin(dLo / 2) ** 2; return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)) }
+        function setStatus(m) { document.getElementById('statusBar').textContent = m }
+        function showLoad(v) { document.getElementById('loading').classList.toggle('hidden', !v) }
+        function setMode(m) { curMode = m; document.querySelectorAll('.mode-btns button').forEach(b => b.classList.remove('active')); document.getElementById('btn-' + m).classList.add('active') }
+        function saveDestination() { const id = document.getElementById('destSelect').value; if (!id) return; const sv = JSON.parse(localStorage.getItem('td') || '[]'); if (!sv.includes(id)) { sv.push(id); localStorage.setItem('td', JSON.stringify(sv)); renderSaved() } }
+        function renderSaved() { const sv = JSON.parse(localStorage.getItem('td') || '[]'); document.getElementById('savedDests').innerHTML = sv.map(id => { const s = STOPS.find(x => x.id === id); return s ? `<button onclick="selDest('${id}')">${s.n}</button>` : '' }).join('') }
+        function selDest(id) { document.getElementById('destSelect').value = id; calculateBestPlan() }
+        function startPoll() { fetchRT(); pollT = setInterval(() => { if (document.visibilityState === 'visible') fetchRT() }, CONFIG.pollMs) }
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') fetchRT() });
+        async function init() { initMap(); const sel = document.getElementById('destSelect'); STOPS.forEach(s => { const o = document.createElement('option'); o.value = s.id; o.textContent = s.n; sel.appendChild(o) }); renderSaved(); await updUser(); if (userPos) map.setView([userPos.lat, userPos.lon], 15); startPoll(); setInterval(() => { if (document.visibilityState === 'visible') updUser() }, 15000) }
+        init();
+    </script>
+</body>
+
+</html>
