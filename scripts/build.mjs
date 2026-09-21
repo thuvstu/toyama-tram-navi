@@ -22,17 +22,21 @@ const stopsJs = stopsData.stops.map((s, i) =>
     `{id:"${s.id}",n:"${s.name}",la:${s.lat},lo:${s.lon},ln:${guessLine(s, i)}}`
 ).join(',\n');
 
-// 置換
+// 置換 (マーカーがあればそれ基準、なければ既存STOPS配列を置換)
 const marker = '/*__STOPS_DATA__*/';
-if (!html.includes(marker)) {
-    console.error('❌ index.html に /*__STOPS_DATA__*/ マーカーが見つからない');
+const stopsBlock = `const STOPS=[\n${stopsJs}\n]; /*__STOPS_DATA__*/`;
+if (html.includes(marker)) {
+    html = html.replace(
+        /const STOPS=\[[\s\S]*?\];\s*\/\*__STOPS_DATA__\*\//,
+        stopsBlock
+    );
+} else if (/const STOPS\s*=\s*\[[\s\S]*?\];/.test(html)) {
+    console.log('⚠️ マーカーなし: 既存STOPS配列を置換します');
+    html = html.replace(/const STOPS\s*=\s*\[[\s\S]*?\];/, stopsBlock);
+} else {
+    console.error('❌ index.html に STOPS配列が見つからない');
     process.exit(1);
 }
-
-html = html.replace(
-    /const STOPS=\[[\s\S]*?\];\s*\/\*__STOPS_DATA__\*\//,
-    `const STOPS=[\n${stopsJs}\n]; /*__STOPS_DATA__*/`
-);
 
 // バージョン情報埋め込み
 html = html.replace(

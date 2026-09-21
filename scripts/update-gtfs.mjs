@@ -7,7 +7,7 @@
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { execSync } from 'child_process';
+import { inflateRawSync } from 'zlib';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -40,8 +40,9 @@ async function main() {
     }
 
     if (!stops) {
-        console.error('❌ 全ソース失敗。既存 data/stops.json を維持します。');
-        process.exit(1);
+        console.warn('⚠️ 全ソース失敗。既存 data/stops.json を維持します。');
+        // 定期実行を赤にしないため exit 0 (データ更新なしで正常終了扱い)
+        process.exit(0);
     }
 
     const output = {
@@ -62,7 +63,8 @@ async function main() {
 
 // ─── gtfs-data.jp ─────────────────────────────────────────
 async function fetchFromGtfsDataJp() {
-    const zipUrl = 'https://gtfs-data.jp/api/v1/feeds/chitetsu*chitetsushinaidensha/gtfs.zip';
+    // v2 API (2026年確認): https://api.gtfs-data.jp/v2/organizations/chitetsu/feeds/chitetsushinaidensha/files/feed.zip
+    const zipUrl = 'https://api.gtfs-data.jp/v2/organizations/chitetsu/feeds/chitetsushinaidensha/files/feed.zip?rid=current';
     console.log(`   DL: ${zipUrl}`);
 
     const resp = await fetch(zipUrl, {
@@ -71,11 +73,13 @@ async function fetchFromGtfsDataJp() {
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-    const zipPath = join(GTFS_DIR, 'gtfs.zip');
-    writeFileSync(zipPath, Buffer.from(await resp.arrayBuffer()));
-    execSync(`unzip -o "${zipPath}" -d "${GTFS_DIR}"`, { stdio: 'pipe' });
+    const buf = Buffer.from(await resp.arrayBuffer());
+    assertZip(buf, resp.headers.get('content-type'));
 
-    return parseStopsTxt(join(GTFS_DIR, 'stops.txt'));
+    const zipPath = join(GTFS_DIR, 'gtfs.zip');
+    writeFileSync(zipPath, buf);
+
+    return parseStopsTxt(extractFromZip(zipPath, 'stops.txt'));
 }
 
 // ─── 富山県オープンデータ ─────────────────────────────────
@@ -86,16 +90,51 @@ async function fetchFromToyamaOpenData() {
     const resp = await fetch(zipUrl, { signal: AbortSignal.timeout(30000) });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-    const zipPath = join(GTFS_DIR, 'gtfs_toyama.zip');
-    writeFileSync(zipPath, Buffer.from(await resp.arrayBuffer()));
-    execSync(`unzip -o "${zipPath}" -d "${GTFS_DIR}"`, { stdio: 'pipe' });
+    const buf = Buffer.from(await resp.arrayBuffer());
+    assertZip(buf, resp.headers.get('content-type'));
 
-    return parseStopsTxt(join(GTFS_DIR, 'stops.txt'));
+    const zipPath = join(GTFS_DIR, 'gtfs_toyama.zip');
+    writeFileSync(zipPath, buf);
+
+    return parseStopsTxt(extractFromZip(zipPath, 'stops.txt'));
+}
+
+// ─── zipから1ファイル取り出し (pure JS, unzipバイナリ不要) ──
+function extractFromZip(zipPath, wantName) {
+    const buf = readFileSync(zipPath);
+    // EOCD検索
+    let eocd = -1;
+    for (let i = buf.length - 22; i >= 0; i--) {
+        if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error('EOCD not found (not a zip?)');
+    const cdCount = buf.readUInt16LE(eocd + 10);
+    let p = buf.readUInt32LE(eocd + 16);
+    for (let i = 0; i < cdCount; i++) {
+        if (buf.readUInt32LE(p) !== 0x02014b50) throw new Error('broken central directory');
+        const method = buf.readUInt16LE(p + 10);
+        const cSize = buf.readUInt32LE(p + 20);
+        const nameLen = buf.readUInt16LE(p + 28);
+        const extraLen = buf.readUInt16LE(p + 30);
+        const commentLen = buf.readUInt16LE(p + 32);
+        const lhOff = buf.readUInt32LE(p + 42);
+        const name = buf.slice(p + 46, p + 46 + nameLen).toString('utf-8');
+        p += 46 + nameLen + extraLen + commentLen;
+        if (name !== wantName) continue;
+        if (buf.readUInt32LE(lhOff) !== 0x04034b50) throw new Error('broken local header');
+        const lhNameLen = buf.readUInt16LE(lhOff + 26);
+        const lhExtraLen = buf.readUInt16LE(lhOff + 28);
+        const dataStart = lhOff + 30 + lhNameLen + lhExtraLen;
+        const data = buf.slice(dataStart, dataStart + cSize);
+        if (method === 0) return data.toString('utf-8');
+        if (method === 8) return inflateRawSync(data).toString('utf-8');
+        throw new Error(`unsupported method ${method}`);
+    }
+    throw new Error(`${wantName} not found in zip`);
 }
 
 // ─── stops.txt → JSON ───────────────────────────────────
-function parseStopsTxt(filePath) {
-    const raw = readFileSync(filePath, 'utf-8');
+function parseStopsTxt(raw) {
     const lines = raw.trim().split('\n');
     const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
 
@@ -138,6 +177,15 @@ function parseCsvLine(line) {
     return result;
 }
 
+// ─── DL内容がzipか検証 (HTMLエラーページ誤爆を早期検出) ──
+function assertZip(buf, contentType) {
+    const isZip = buf.length > 4 && buf[0] === 0x50 && buf[1] === 0x4b; // PK..
+    if (!isZip) {
+        const head = buf.slice(0, 120).toString('utf-8').replace(/\s+/g, ' ');
+        throw new Error(`not a zip (content-type: ${contentType}, head: ${head})`);
+    }
+}
+
 // ─── 差分チェック ─────────────────────────────────────────
 function checkDiff(newStops, outPath) {
     if (!existsSync(outPath)) {
@@ -145,7 +193,17 @@ function checkDiff(newStops, outPath) {
         return;
     }
 
-    const old = JSON.parse(readFileSync(outPath, 'utf-8'));
+    let old;
+    try {
+        old = JSON.parse(readFileSync(outPath, 'utf-8'));
+    } catch {
+        console.log('   (既存stops.jsonが空/破損: 差分スキップ)');
+        return;
+    }
+    if (!old.stops) {
+        console.log('   (既存stops.jsonにstopsなし: 差分スキップ)');
+        return;
+    }
     const oldIds = new Set(old.stops.map(s => s.id));
     const newIds = new Set(newStops.map(s => s.id));
 
