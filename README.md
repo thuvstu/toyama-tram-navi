@@ -67,7 +67,7 @@
 | データベース | 停留所データをHTMLに内蔵 (39個・2KB) |
 | 経路計算サーバー | OSRM Public API (CORS対応済み) |
 | 地図サーバー | OSM Tile (CORS対応済み) |
-| CORSプロキシ | corsproxy.io (死亡時→fallback/のCF Worker) |
+| CORSプロキシ | 自前Cloudflare Worker (`fallback/`) 推奨。corsproxy.ioはAPIキー必須化のため非推奨 |
 
 ---
 
@@ -116,16 +116,27 @@ git add -A && git commit -m "chore: GTFS更新"
 
 ---
 
-## CORSプロキシが死んだら
+## RT取得とCORSプロキシ
+
+GTFS-RT配信元はブラウザ直fetchを許可していない(CORS)ため、中継プロキシが必要。
+取得順: 直fetch → `CONFIG.corsProxies` の順にフォールバック。
+
+### 自前Cloudflare Worker (推奨)
 
 ```bash
 cd fallback/
+npx wrangler login   # 初回のみ
 npx wrangler deploy
-# 出力URLを index.html の CONFIG.corsProxy に設定
-# git commit -m "fix: switch to CF Worker proxy"
+# 出力URLを index.html の CONFIG.corsProxies 先頭に追加:
+#   "https://gtfs-rt-proxy.YOUR_SUBDOMAIN.workers.dev/?url=",
 ```
 
 無料枠: 10万リクエスト/日（個人利用で到達しない）
+
+### corsproxy.io (非推奨)
+
+2025年以降APIキー必須＋本番ドメイン登録が必要で、無料枠も全利用者で月1万リクエスト共有。
+使う場合は `https://corsproxy.io/?key=あなたの鍵&url=` の形で `corsProxies` に追加。
 
 ---
 
@@ -233,7 +244,7 @@ data/gtfs/
   GitHub Actions → GTFS DL → stops.json更新 → index.html再生成 → push
 
 corsproxy.io死亡時 (手動・3分):
-  cd fallback/ && npx wrangler deploy → CONFIG.corsProxy 1行変更
+  cd fallback/ && npx wrangler deploy → CONFIG.corsProxies に追加
 
 ダイヤ大改正時 (手動):
   node scripts/update-gtfs.mjs && node scripts/build.mjs

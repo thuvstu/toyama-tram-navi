@@ -1,1 +1,6 @@
+node_modules/
+.wrangler/
+.dev.vars
 data/gtfs/
+*.zip
+.DS_Store

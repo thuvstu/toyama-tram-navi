@@ -324,9 +324,11 @@
         "use strict";
         const CONFIG = {
             vpUrl: "https://gtfs-rt-files.buscatch.jp/toyama/chitetsu_tram/VehiclePositions.pb",
-            // 通常: 公共プロキシ / 死んだら fallback/ のCF Worker URLに差し替え
-            corsProxy: "https://corsproxy.io/?url=",
-            // corsProxy: "https://gtfs-rt-proxy.YOUR_SUBDOMAIN.workers.dev/?url=",  ← 切替用
+            // 直fetch→プロキシ順に試す。CORS回避には自前Worker推奨
+            // 例: "https://gtfs-rt-proxy.YOUR_SUBDOMAIN.workers.dev/?url=",
+            corsProxies: [
+                "https://gtfs-rt-proxy.thuthuvs.workers.dev/?url=",
+            ],
             osrmBase: "https://router.project-osrm.org",
             pollMs: 45000,
             serviceStart: 360,   // 6:00
@@ -416,14 +418,22 @@
         async function fetchRT() {
             const m = jstMin();
             if (m < CONFIG.serviceStart || m > CONFIG.serviceEnd) { setStatus("🌙 運行時間外"); vehicles = []; updTrams(); return }
+            if (!CONFIG.vpUrl) { setStatus("📋 時刻表モード (RT未設定)"); return }
             if (Date.now() - lastFetch < 30000) return;
-            try {
-                const r = await fetch(CONFIG.corsProxy + encodeURIComponent(CONFIG.vpUrl), { signal: AbortSignal.timeout(8000) });
-                if (!r.ok) throw new Error(r.status);
-                parseVP(new Uint8Array(await r.arrayBuffer()));
-                lastFetch = Date.now(); updTrams();
-                setStatus("🟢 RT " + new Date().toLocaleTimeString('ja-JP') + " (" + vehicles.length + "両)");
-            } catch (e) { setStatus("🔴 RT失敗: " + e.message) }
+            // 直 fetch → プロキシ順に試す
+            const urls = [CONFIG.vpUrl, ...CONFIG.corsProxies.map(p => p + encodeURIComponent(CONFIG.vpUrl))];
+            let lastErr = null;
+            for (const u of urls) {
+                try {
+                    const r = await fetch(u, { signal: AbortSignal.timeout(8000) });
+                    if (!r.ok) throw new Error(r.status);
+                    parseVP(new Uint8Array(await r.arrayBuffer()));
+                    lastFetch = Date.now(); updTrams();
+                    setStatus("🟢 RT " + new Date().toLocaleTimeString('ja-JP') + " (" + vehicles.length + "両)");
+                    return;
+                } catch (e) { lastErr = e }
+            }
+            setStatus("🔴 RT失敗: " + (lastErr ? lastErr.message : "unknown"));
         }
         class PB {
             constructor(d) { this.d = d; this.p = 0 }
