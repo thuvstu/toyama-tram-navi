@@ -387,14 +387,10 @@
             map = L.map('map', { zoomControl: false }).setView([36.695, 137.215], 14);
             L.control.zoom({ position: 'topright' }).addTo(map);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '©OSM', maxZoom: 18 }).addTo(map);
-            const colors = { 1: '#e94560', 2: '#4caf50', 3: '#ff9800', 4: '#2196f3' };
+            // 停留所ドットのみ表示。路線の直線結びは道路・軌道に沿わないため描かない
             STOPS.forEach(s => {
                 L.marker([s.la, s.lo], { icon: L.divIcon({ className: 'tram-marker', html: '<div class="stop-marker"></div>', iconSize: [8, 8] }) })
                     .addTo(map).bindTooltip(s.n, { direction: 'top', offset: [0, -5] });
-            });
-            [1, 2, 3, 4].forEach(ln => {
-                const pts = STOPS.filter(s => s.ln === ln).map(s => [s.la, s.lo]);
-                if (pts.length > 1) L.polyline(pts, { color: colors[ln], weight: 3, opacity: .5 }).addTo(map);
             });
         }
         function getGPS() {
@@ -539,7 +535,14 @@
             if (tgtMk) map.removeLayer(tgtMk); if (routeLn) map.removeLayer(routeLn); if (destMk) map.removeLayer(destMk);
             tgtMk = L.marker([b.stop.la, b.stop.lo], { icon: L.divIcon({ className: 'tram-marker', html: '<div class="target-stop"></div>', iconSize: [14, 14] }) }).addTo(map).bindTooltip("🎯 " + b.stop.n + " へ走れ!", { direction: 'top' }).openTooltip();
             destMk = L.marker([dest.la, dest.lo], { icon: L.divIcon({ className: 'tram-marker', html: '<div class="dest-marker"></div>', iconSize: [14, 14] }) }).addTo(map).bindTooltip("🏁 " + dest.n, { direction: 'top' });
-            if (b.geo) { routeLn = L.polyline(b.geo.coordinates.map(c => [c[1], c[0]]), { className: 'route-line' }).addTo(map); map.fitBounds(routeLn.getBounds().pad(.2)) }
+            if (b.geo) {
+                const pts = b.geo.coordinates.map(c => [c[1], c[0]]);
+                routeLn = L.layerGroup([
+                    L.polyline(pts, { color: '#ffffff', weight: 7, opacity: .9 }),
+                    L.polyline(pts, { color: '#4caf50', weight: 4, opacity: 1 }),
+                ]).addTo(map);
+                map.fitBounds(routeLn.getBounds().pad(.2))
+            }
             curPlan = { tramArr: b.tramArr }; startCD();
         }
         function startCD() {
